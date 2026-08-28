@@ -14,7 +14,7 @@ ACTION_BLANK_FLAGGED = "blank_flagged"
 ACTION_BLANK_STALE = "blank_stale"
 
 SIGNAL_SCORE_PROPERTY = "signal_score"
-HUBSPOT_APP_URL = "https://app.hubspot.com"
+HUBSPOT_APP_URL = "https://app.hubspot.com/contacts/47829307/objects/0-2/views/71178118/list"
 HUBSPOT_API_BASE = "https://api.hubapi.com"
 
 UNIVERSE_PROPERTIES = [
