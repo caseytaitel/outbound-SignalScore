@@ -1,0 +1,1 @@
+"""Signal Score automation package."""
