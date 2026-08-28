@@ -12,17 +12,39 @@ From this repo root (not inside `signal_score/`):
 
 ```bash
 pip install -r requirements.txt
-python run_signal_score.py --dry-run   # pull + score; writes CSV; no HubSpot writes, no toast
-python run_signal_score.py             # live write to HubSpot + Windows toast
+python run_signal_score.py --dry-run   # full universe; CSV + flagged file; no HubSpot writes, no toast
+python run_signal_score.py             # full live write to HubSpot + Windows toast
 python -m pytest
 ```
 
 Auth: `HUBSPOT_TOKEN` in `.env.local` (gitignored).
 
-**Dry-run output:** `logs/dry_run_YYYYMMDD.csv` (UTC date) with columns `company_id`, `name`, `action`, `signal_score`, `reason`.  
-`action` is one of: `score` | `blank_excluded` | `blank_flagged` | `blank_stale`.
+**Score / update specific companies** (same exclude / flag / score / write rules as the full job; no toast; does not overwrite the full dry-run CSV or the flagged-ID file):
 
-**Live-run output:** `logs/signal_score_YYYY-MM-DD.log` plus a Windows toast.
+```bash
+python run_signal_score.py --company-id 123 --dry-run
+python run_signal_score.py --company-id 123 --company-id 456
+```
+
+**Re-score flagged companies** after you fix their HubSpot data. Each full run writes `logs/flagged_YYYYMMDD.txt` (UTC date, TSV: `company_id`, `name`, `reason`; empty if none). Isolated runs do not overwrite that file.
+
+```bash
+python run_signal_score.py --rescore-flagged --dry-run
+python run_signal_score.py --rescore-flagged
+python run_signal_score.py --rescore-flagged --flagged-file logs/flagged_20260828.txt
+```
+
+`--rescore-flagged` defaults to today’s UTC file. If the date rolled overnight, pass `--flagged-file` using the path printed in the log.
+
+**Force-blank smoke test** (skips scoring; use a company the job would blank anyway):
+
+```bash
+python run_signal_score.py --company-id 25005760952 --write-blank --dry-run
+python run_signal_score.py --company-id 25005760952 --write-blank
+```
+
+**Full-run output:** `logs/dry_run_YYYYMMDD.csv` (dry-run only), `logs/flagged_YYYYMMDD.txt`, `logs/signal_score_YYYY-MM-DD.log`. Live runs also toast.  
+CSV `action` is one of: `score` | `blank_excluded` | `blank_flagged` | `blank_stale`.
 
 ---
 
@@ -33,9 +55,9 @@ Every live run fires exactly one toast. Click through, then:
 | Toast | What to do |
 |---|---|
 | **Complete** | Nothing. Click opens HubSpot (`https://app.hubspot.com`). |
-| **N failed to write** | Click opens `logs/`. Find `WRITE FAILED` lines, fix the cause, **re-run the full script**. Failed writes are not retried automatically. |
-| **M flagged for review** | Click opens `logs/`. Search `FLAGGED`. Fix the underlying HubSpot data, then **re-run the full script** — there is no “update these M companies only” path. |
-| **N failed, M flagged** | Do both of the above, then full re-run. |
+| **N failed to write** | Click opens `logs/`. Find `WRITE FAILED` lines, fix the cause, then **re-run the full script** or `python run_signal_score.py --company-id <id>` for those IDs. Failed writes are not retried automatically and are **not** listed in `flagged_*.txt`. |
+| **M flagged for review** | Click opens `logs/`. Search `FLAGGED` or open `logs/flagged_YYYYMMDD.txt`. Fix the underlying HubSpot data, then `python run_signal_score.py --rescore-flagged --dry-run`, then `--rescore-flagged`. |
+| **N failed, M flagged** | Re-score flagged with `--rescore-flagged`. Re-run failed writes with `--company-id` or a full live run. |
 | **Run aborted** | Pull/auth/network failed before any writes. Check the log, fix credentials/network, re-run. |
 
 Dry-run does not toast.
@@ -135,8 +157,8 @@ Run only on Step 2 survivors. Not scored. Logged so the two causes can be told a
 | `signal_score/scoring.py` | Pure scoring + flag rules. No HubSpot I/O. |
 | `signal_score/writeback.py` | Batch-write scores/blanks; continue on per-company failure. |
 | `signal_score/notify.py` | End-of-run Windows toast (live runs only). |
-| `signal_score/orchestrator.py` | Wires the above; `--dry-run`; log file. |
-| `tests/` | Unit tests for scoring, exclusion, write failure handling, toasts. |
+| `signal_score/orchestrator.py` | Wires the above; `--dry-run`; `--company-id`; `--rescore-flagged`; log file. |
+| `tests/` | Unit tests for `plan_company` and the flagged-ID file. |
 
 `signal_score/` is the importable package. Do not run files inside it as scripts.
 
@@ -146,6 +168,6 @@ Run only on Step 2 survivors. Not scored. Logged so the two causes can be told a
 
 - **Open deals:** exclusion uses the Company property `hs_num_open_deals` only. Closed deals are not considered; the Deal object is never read.
 - **Intro demo:** exclusion uses the Company property `intro_demo_complete_date` only. No Deal-object demo/stage check.
-- **Flagged companies:** no efficient “re-score just the flagged set” workflow. After you fix those records in HubSpot, you must run the full refresh (every target account), not a patch of the flagged IDs.
+- **Isolated / `--rescore-flagged`:** updates only the IDs you pass (or the flagged file). It does not refresh the rest of the universe and does not run the global stale-clear (Step 5).
+- **`--rescore-flagged` date:** uses today’s UTC `flagged_YYYYMMDD.txt`. A same-day full dry-run overwrites that file. If the UTC date rolled, pass `--flagged-file`.
 - **Windows Task Scheduler is not set up yet.** Runs are manual (`python run_signal_score.py`).
-- **Not pushed to GitHub yet.** This repo is local only.

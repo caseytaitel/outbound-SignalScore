@@ -94,6 +94,17 @@ class HubSpotClient:
                 )
         return results
 
+    def get_company(self, company_id: str, properties: list[str]) -> Company:
+        data = self._request_json(
+            "GET",
+            f"/crm/v3/objects/companies/{company_id}",
+            params={"properties": ",".join(properties)},
+        )
+        return Company(
+            id=str(data.get("id") or company_id),
+            properties=dict(data.get("properties") or {}),
+        )
+
     def batch_update_signal_score(self, updates: list[tuple[str, str]]) -> BatchUpdateResult:
         """updates: list of (company_id, signal_score_value_as_string)."""
         payload = {
@@ -133,6 +144,7 @@ class HubSpotClient:
         method: str,
         path: str,
         json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url}{path}"
         delay = 1.0
@@ -143,6 +155,7 @@ class HubSpotClient:
                     method,
                     url,
                     json=json,
+                    params=params,
                     timeout=REQUEST_TIMEOUT_SECONDS,
                 )
             except requests.RequestException as exc:
