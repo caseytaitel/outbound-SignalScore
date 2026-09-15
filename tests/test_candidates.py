@@ -54,10 +54,11 @@ def test_classify_scope():
     target = {"hs_is_target_account": "true"}
     candidate = {"type": "PROSPECT", "competitor_intent": "Cribl"}
 
-    assert classify_scope(target, include_candidates=False) == SCOPE_TARGET
-    assert classify_scope(candidate, include_candidates=True) == SCOPE_CANDIDATE
-    assert classify_scope(candidate, include_candidates=False) == ""
-    assert classify_scope({"type": "CUSTOMER"}, include_candidates=True) == ""
+    assert classify_scope(target) == SCOPE_TARGET
+    assert classify_scope(candidate) == SCOPE_CANDIDATE
+    assert classify_scope({"type": "CUSTOMER", "competitor_intent": "Cribl"}) == ""
+    assert classify_scope({"type": "PROSPECT"}) == ""  # allowed type, but no signal
+    assert classify_scope({}) == ""
 
 
 def test_fetch_candidates_dedupes_by_id():
@@ -71,37 +72,64 @@ def test_fetch_candidates_dedupes_by_id():
     assert len(companies) == 2
 
 
-def test_plan_company_scores_candidate_only_when_included():
+def test_plan_company_scores_candidate():
     company = Company(id="1", properties={"name": "A", "competitor_intent": "Cribl", **SCORING_COMPANY})
 
-    included = plan_company(company, include_candidates=True)
-    assert included.op.action == ACTION_SCORE
-    assert included.scope == SCOPE_CANDIDATE
-
-    excluded = plan_company(company, include_candidates=False)
-    assert excluded.op.action == ACTION_BLANK_STALE
-    assert excluded.scope == ""
+    item = plan_company(company)
+    assert item.op.action == ACTION_SCORE
+    assert item.scope == SCOPE_CANDIDATE
 
 
-def test_plan_company_target_account_is_unaffected_by_the_flag():
-    company = Company(id="1", properties={"name": "A", "hs_is_target_account": "true", **SCORING_COMPANY})
-    for include in (True, False):
-        item = plan_company(company, include_candidates=include)
-        assert item.op.action == ACTION_SCORE
-        assert item.scope == SCOPE_TARGET
+def test_plan_company_target_beats_candidate():
+    company = Company(
+        id="1",
+        properties={
+            "name": "A",
+            "hs_is_target_account": "true",
+            "competitor_intent": "Cribl",  # would also qualify it as a candidate
+            **SCORING_COMPANY,
+        },
+    )
+
+    item = plan_company(company)
+    assert item.op.action == ACTION_SCORE
+    assert item.scope == SCOPE_TARGET
+
+
+def test_plan_company_blanks_company_that_is_neither_target_nor_candidate():
+    company = Company(id="1", properties={"name": "A", "type": "CUSTOMER", **SCORING_COMPANY})
+
+    item = plan_company(company)
+    assert item.op.action == ACTION_BLANK_STALE
+    assert item.scope == ""
+
+
+def test_stale_shaped_company_that_qualifies_as_candidate_is_scored_not_blanked():
+    """fetch_stale surfaces scored non-targets; plan_company re-scores the ones still in scope."""
+    company = Company(
+        id="1",
+        properties={
+            "name": "A",
+            "signal_score": "40",
+            "competitor_intent": "Cribl",
+            **SCORING_COMPANY,
+        },
+    )
+
+    item = plan_company(company)
+    assert item.op.action == ACTION_SCORE
+    assert item.scope == SCOPE_CANDIDATE
 
 
 def test_noop_candidate_blank_is_skipped_but_target_blank_is_not():
     props = {"name": "A", "competitor_intent": "Cribl"}  # siem blank -> excluded -> blank write
     candidate = Company(id="1", properties=props)
-    item = plan_company(candidate, include_candidates=True)
+    item = plan_company(candidate)
     assert item.op.action == ACTION_BLANK_EXCLUDED
     assert _is_noop_candidate_blank(item, candidate)
 
     already_scored = Company(id="1", properties={**props, "signal_score": "40"})
-    assert not _is_noop_candidate_blank(
-        plan_company(already_scored, include_candidates=True), already_scored
-    )
+    assert not _is_noop_candidate_blank(plan_company(already_scored), already_scored)
 
     target = Company(id="2", properties={"name": "B", "hs_is_target_account": "true"})
-    assert not _is_noop_candidate_blank(plan_company(target, include_candidates=True), target)
+    assert not _is_noop_candidate_blank(plan_company(target), target)

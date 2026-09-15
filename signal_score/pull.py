@@ -85,15 +85,18 @@ def qualifies_as_candidate(properties: Mapping[str, Any]) -> bool:
     return any(signal_is_present(properties, filter_) for _name, filter_ in SIGNAL_CONDITIONS)
 
 
-def classify_scope(properties: Mapping[str, Any], *, include_candidates: bool) -> str:
+def classify_scope(properties: Mapping[str, Any]) -> str:
     """SCOPE_TARGET, SCOPE_CANDIDATE, or "" when out of scope (i.e. stale).
+
+    Target wins over candidate: a target account that would also qualify as a candidate is
+    always SCOPE_TARGET, so it keeps the full-refresh write behavior.
 
     Pure, so the isolated --company-id / --rescore-flagged paths classify a company the
     same way the full run does, without needing to know which query surfaced it.
     """
     if is_true(properties.get("hs_is_target_account")):
         return SCOPE_TARGET
-    if include_candidates and qualifies_as_candidate(properties):
+    if qualifies_as_candidate(properties):
         return SCOPE_CANDIDATE
     return ""
 
@@ -166,10 +169,9 @@ def fetch_candidates(client: HubSpotClient) -> list[Company]:
     return list(by_id.values())
 
 
-def fetch_universe(client: HubSpotClient, *, include_candidates: bool = False) -> list[Company]:
+def fetch_universe(client: HubSpotClient) -> list[Company]:
+    """The full universe: target accounts plus qualifying candidates, de-duped by id."""
     universe = fetch_target_accounts(client)
-    if not include_candidates:
-        return universe
     target_ids = {company.id for company in universe}
     universe.extend(
         company for company in fetch_candidates(client) if company.id not in target_ids
@@ -178,7 +180,11 @@ def fetch_universe(client: HubSpotClient, *, include_candidates: bool = False) -
 
 
 def fetch_stale(client: HubSpotClient) -> list[Company]:
-    """Companies with a populated signal_score whose target-account flag is not TRUE."""
+    """Companies with a populated signal_score whose target-account flag is not TRUE.
+
+    Deliberately candidate-unaware, so this over-pulls: plan_company re-classifies every hit,
+    and one that still qualifies as a candidate is re-scored rather than blanked.
+    """
     return client.search_companies(
         filter_groups=[
             {
@@ -209,16 +215,3 @@ def fetch_stale(client: HubSpotClient) -> list[Company]:
         ],
         properties=UNIVERSE_PROPERTIES,
     )
-
-
-def partition_universe(companies: list[Company]) -> tuple[list[tuple[Company, str]], list[Company]]:
-    """Returns (excluded_with_reason, candidates_for_scoring)."""
-    excluded: list[tuple[Company, str]] = []
-    candidates: list[Company] = []
-    for company in companies:
-        result = classify_exclusion(company.properties)
-        if result.excluded:
-            excluded.append((company, result.reason or REASON_SIEM))
-        else:
-            candidates.append(company)
-    return excluded, candidates

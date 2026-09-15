@@ -10,6 +10,10 @@ log = logging.getLogger(__name__)
 APP_ID = "Realm.SignalScore"
 
 
+def _plural(count: int, singular: str) -> str:
+    return singular if count == 1 else f"{singular}s"
+
+
 def toast_spec(
     *,
     write_failures: int,
@@ -17,6 +21,8 @@ def toast_spec(
     aborted: bool,
     logs_dir: Path,
     hubspot_app_url: str = HUBSPOT_APP_URL,
+    targets: int = 0,
+    candidates: int = 0,
 ) -> tuple[str, str, str]:
     """Return (body, launch, action_label) for the run's toast state."""
     logs_launch = logs_dir.resolve().as_uri()
@@ -26,11 +32,11 @@ def toast_spec(
     n = write_failures
     m = flagged
     if n == 0 and m == 0:
-        return (
-            "Signal Score: Complete — all target accounts updated.",
-            hubspot_app_url,
-            "Open HubSpot",
+        body = (
+            f"Signal Score: Complete — {targets} {_plural(targets, 'target')}, "
+            f"{candidates} {_plural(candidates, 'candidate')} updated."
         )
+        return body, hubspot_app_url, "Open HubSpot"
     if n > 0 and m == 0:
         noun = "account" if n == 1 else "accounts"
         return f"Signal Score: {n} {noun} failed to write.", logs_launch, "Open logs"
@@ -47,6 +53,8 @@ def show_run_toast(
     aborted: bool,
     logs_dir: Path,
     hubspot_app_url: str = HUBSPOT_APP_URL,
+    targets: int = 0,
+    candidates: int = 0,
 ) -> None:
     body, launch, action_label = toast_spec(
         write_failures=write_failures,
@@ -54,6 +62,8 @@ def show_run_toast(
         aborted=aborted,
         logs_dir=logs_dir,
         hubspot_app_url=hubspot_app_url,
+        targets=targets,
+        candidates=candidates,
     )
     _show(body, launch, action_label)
 

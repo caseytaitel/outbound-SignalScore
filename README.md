@@ -19,7 +19,8 @@ python -m pytest
 
 Auth: `HUBSPOT_TOKEN` in `.env.local` (gitignored).
 
-**Score / update specific companies** (same exclude / flag / score / write rules as the full job; no toast; does not overwrite the full dry-run CSV or the flagged-ID file):
+**Score / update specific companies*
+* (same exclude / flag / score / write rules as the full job; no toast; does not overwrite the full dry-run CSV or the flagged-ID file):
 
 ```bash
 python run_signal_score.py --company-id 123 --dry-run
@@ -95,7 +96,7 @@ Every live run fires exactly one toast. Click through, then:
 
 | Toast | What to do |
 |---|---|
-| **Complete** | Nothing. Click opens the HubSpot company saved view ([view 71178118](https://app.hubspot.com/contacts/47829307/objects/0-2/views/71178118/list)). |
+| **Complete — X targets, Y candidates updated** | Nothing. X/Y are in-scope writes (scored plus excluded/flagged blanks; stale and no-op candidate blanks omitted). Click opens the HubSpot company saved view ([view 71178118](https://app.hubspot.com/contacts/47829307/objects/0-2/views/71178118/list)). |
 | **N failed to write** | Click opens `logs/`. Find `WRITE FAILED` lines, fix the cause, then **re-run the full script** or `python run_signal_score.py --company-id <id>` for those IDs. Failed writes are not retried automatically and are **not** listed in `flagged_*.txt`. |
 | **M flagged for review** | Click opens `logs/`. Search `FLAGGED` or open `logs/flagged_YYYYMMDD.txt`. Fix the underlying HubSpot data, then `python run_signal_score.py --rescore-flagged --dry-run`, then `--rescore-flagged`. |
 | **N failed, M flagged** | Re-score flagged with `--rescore-flagged`. Re-run failed writes with `--company-id` or a full live run. |

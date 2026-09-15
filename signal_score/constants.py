@@ -20,8 +20,8 @@ SIGNAL_SCORE_PROPERTY = "signal_score"
 HUBSPOT_APP_URL = "https://app.hubspot.com/contacts/47829307/objects/0-2/views/71178118/list"
 HUBSPOT_API_BASE = "https://api.hubapi.com"
 
-# Abort before writing if a run plans more than this. Expected steady state with
-# --include-candidates is ~3,400; this is the runaway-query circuit breaker.
+# Abort before writing if a run plans more than this. Expected steady state is ~3,400
+# (~986 target + ~2,400 candidate); this is the runaway-query circuit breaker.
 MAX_PLANNED_WRITES = 6_000
 
 UNIVERSE_PROPERTIES = [
