@@ -44,7 +44,48 @@ python run_signal_score.py --company-id 25005760952 --write-blank
 ```
 
 **Full-run output:** `logs/dry_run_YYYYMMDD.csv` (dry-run only), `logs/flagged_YYYYMMDD.txt`, `logs/signal_score_YYYY-MM-DD.log`. Live runs also toast.  
-CSV `action` is one of: `score` | `blank_excluded` | `blank_flagged` | `blank_stale`.
+CSV `action` is one of: `score` | `blank_excluded` | `blank_flagged` | `blank_stale`. CSV `scope` is `target`, `candidate`, or blank (stale) — see [Candidates](#candidates---include-candidates).
+
+---
+
+## Candidates (`--include-candidates`)
+
+By default the universe is target accounts only. With `--include-candidates`, the job **also** scores
+non-target companies that have real signal — candidates a human might promote onto the target list.
+
+```bash
+python run_signal_score.py --include-candidates --dry-run   # review first
+python run_signal_score.py --include-candidates             # live
+```
+
+A candidate is a company where `hs_is_target_account` is not `true`, **and** Company `type` is not one of
+`Customer` / `Reseller` / `MSSP` / `MSSP / Reseller` / `Alliance Partner` / `Vendor` / `Investor` / `Other`
+(blank `type` **is** in scope — treated as an oversight, not a deliberate exclusion), **and** at least one
+signal property is present. "Present" here is deliberately coarser than the scoring gates (`HAS_PROPERTY`,
+`> 0`, `= true`): it only bounds the pull. The same `classify_exclusion` / `compute_score` used for target
+accounts then decides the real outcome, so candidates and target accounts can never be scored by different
+rules. A company that qualifies but scores 0 (e.g. a web visit older than 90 days) still gets `0`, same as
+any other scored account.
+
+**This job never writes `hs_is_target_account`.** The target list stays human-curated; candidates simply get
+a `signal_score` so someone can review them and add the good ones deliberately.
+
+Scope definitions change as follows when the flag is on:
+
+- **Universe** (Step 1) = target accounts **+** candidates.
+- **Stale** (Step 5) = populated `signal_score` and neither a target account nor a qualifying candidate. A
+  company whose signal goes away falls out of the universe and gets blanked on the next run.
+
+Guardrails:
+
+- Candidates whose outcome is a blank **and** whose `signal_score` is already empty are not written at all —
+  that would be a no-op. Target accounts keep the documented full-refresh behavior. Typical run: ~986 target +
+  ~2,400 candidate writes.
+- A run planning more than `MAX_PLANNED_WRITES` (`constants.py`, currently 6,000) aborts before writing
+  anything, as a circuit breaker against a filter change or CRM data shift.
+- The flag is **off by default**, so `run_signal_score.bat` / Task Scheduler behave exactly as before until
+  someone turns it on. It is a rollout guardrail, not permanent architecture — once the expanded scope is
+  trusted, either add the flag to the `.bat` or make it the default.
 
 ---
 
@@ -66,11 +107,11 @@ Dry-run does not toast.
 
 ## Process flow
 
-1. **Pull universe** — all companies where `hs_is_target_account` is `true`. Not list membership.
+1. **Pull universe** — all companies where `hs_is_target_account` is `true`. Not list membership. With `--include-candidates`, also qualifying candidates.
 2. **Exclude** if any of: open deals > 0, intro demo date set, SIEM blank or `"Not Detected"`. Scoring is never run on excluded accounts.
 3. **Score or flag** survivors. Flag rules are not a fourth exclusion; they only apply after Step 2.
 4. **Write** — scored → integer `signal_score`; excluded / flagged / stale → blank (`""`), never zero. A scored account with no signals still gets `0`.
-5. **Clear stale** — `signal_score` populated AND `hs_is_target_account` is not true (false or blank/unset).
+5. **Clear stale** — `signal_score` populated AND out of scope: `hs_is_target_account` not true (false or blank/unset) and, with `--include-candidates`, not a qualifying candidate either.
 6. **Full refresh every run** — no incremental/delta. Every target account is rewritten even if the value is unchanged.
 
 Step 2 exclusions take precedence over flags. An account that is excluded is counted as excluded only, even if it would also have matched a flag rule.
@@ -96,6 +137,7 @@ All on the Company object.
 | `common_room_hiring_for_ciso` | number | Hiring scoring |
 | `common_room_hiring_for_soc_leaders` | number | Hiring scoring |
 | `common_room_hiring_for_soc_team` | number | Hiring scoring |
+| `type` | enum: `Prospect`, `Customer`, `Reseller`, `MSSP`, `MSSP / Reseller`, `Alliance Partner`, `Vendor`, `Investor`, `Other` | Candidate scope only (`--include-candidates`); blank is in scope |
 | `signal_score` | number 0–100 or blank | Output |
 
 Blank/null number properties used in scoring or exclusion are treated as 0.
@@ -153,12 +195,12 @@ Run only on Step 2 survivors. Not scored. Logged so the two causes can be told a
 | `run_signal_score.py` | Entry point. Run this from the repo root. |
 | `signal_score/config.py` | Load `HUBSPOT_TOKEN` from `.env.local`; never log it. |
 | `signal_score/hubspot_client.py` | Auth, Company search pagination, batch update, 429 backoff. |
-| `signal_score/pull.py` | Target-account universe, Step 2 exclusion, stale-score query. |
+| `signal_score/pull.py` | Universe (target accounts + candidates), candidate scope rules, Step 2 exclusion, stale-score query. |
 | `signal_score/scoring.py` | Pure scoring + flag rules. No HubSpot I/O. |
 | `signal_score/writeback.py` | Batch-write scores/blanks; continue on per-company failure. |
 | `signal_score/notify.py` | End-of-run Windows toast (live runs only). |
 | `signal_score/orchestrator.py` | Wires the above; `--dry-run`; `--company-id`; `--rescore-flagged`; log file. |
-| `tests/` | Unit tests for `plan_company` and the flagged-ID file. |
+| `tests/` | Unit tests for candidate scope, `plan_company` classification, and the no-op-blank rule. (Does not yet cover the flagged-ID file — pre-existing gap.) |
 
 `signal_score/` is the importable package. Do not run files inside it as scripts.
 

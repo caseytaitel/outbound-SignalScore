@@ -13,9 +13,16 @@ ACTION_BLANK_EXCLUDED = "blank_excluded"
 ACTION_BLANK_FLAGGED = "blank_flagged"
 ACTION_BLANK_STALE = "blank_stale"
 
+SCOPE_TARGET = "target"
+SCOPE_CANDIDATE = "candidate"
+
 SIGNAL_SCORE_PROPERTY = "signal_score"
 HUBSPOT_APP_URL = "https://app.hubspot.com/contacts/47829307/objects/0-2/views/71178118/list"
 HUBSPOT_API_BASE = "https://api.hubapi.com"
+
+# Abort before writing if a run plans more than this. Expected steady state with
+# --include-candidates is ~3,400; this is the runaway-query circuit breaker.
+MAX_PLANNED_WRITES = 6_000
 
 UNIVERSE_PROPERTIES = [
     "name",
@@ -31,11 +38,6 @@ UNIVERSE_PROPERTIES = [
     "common_room_hiring_for_ciso",
     "common_room_hiring_for_soc_leaders",
     "common_room_hiring_for_soc_team",
-    SIGNAL_SCORE_PROPERTY,
-]
-
-STALE_PROPERTIES = [
-    "name",
-    "hs_is_target_account",
+    "type",
     SIGNAL_SCORE_PROPERTY,
 ]
